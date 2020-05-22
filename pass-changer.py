@@ -6,6 +6,7 @@ from __future__ import absolute_import
 
 import pexpect
 import sys, getpass
+# import logging
 
 try:
     raw_input
@@ -17,6 +18,10 @@ COMMAND_PROMPT = '[$#] '
 TERMINAL_PROMPT = r'Terminal type\?'
 TERMINAL_TYPE = 'vt100'
 SSH_NEWKEY = r'Are you sure you want to continue connecting \(yes/no\)\?'
+PASS_PROMPT1 = r'[Pp]assword:'
+PASS_PROMPT2 = r'Enter your PASSWORD:'
+
+# logging.basicConfig(level=logging.INFO, filename='commandserver.log', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 def login(host, user, password):
@@ -25,7 +30,7 @@ def login(host, user, password):
         child = pexpect.spawn('ssh -l %s %s'%(user, host))
         fout = file ("LOG.TXT","wb")
         child.logfile_read = fout
-        i = child.expect([pexpect.TIMEOUT, SSH_NEWKEY, '[Pp]assword: '])
+        i = child.expect([pexpect.TIMEOUT, SSH_NEWKEY, PASS_PROMPT1, PASS_PROMPT2])
 
         if i == 0: # Timeout
             print('ERROR!')
@@ -45,6 +50,12 @@ def login(host, user, password):
         if i == 0:
             print('Permission denied on host:', host)
             sys.exit (1)
+        
+        if i == 1:
+            child.sendline(TERMINAL_TYPE)
+            child.expect(COMMAND_PROMPT)
+
+        return child
 
     except pexpect.TIMEOUT:
         print("Timeout exceeded on host: ", host)
@@ -55,23 +66,23 @@ def login(host, user, password):
         print("Output from server: ", child.before, child.after)
         pass
 
-    if i == 1:
-        child.sendline(TERMINAL_TYPE)
-        child.expect(COMMAND_PROMPT)
-    return child
+    except:
+        print("Unhandled exception on host: ", host)
+        print("Output from server: ", child.before, child.after)
+        pass
 
 
 def change_password(child, user, oldpassword, newpassword):
 
     child.sendline('passwd')
-    i = child.expect(['[Oo]ld [Pp]assword', '.current.*password', '[Nn]ew [Pp]assword'])
+    i = child.expect(['[Oo]ld [Pp]assword', '.current.*password', '[Nn]ew [Pp]assword', '[Nn]ew UNIX [Pp]assword'])
     # Root does not require old password, so it gets to bypass the next step.
     if i == 0 or i == 1:
         child.sendline(oldpassword)
-        child.expect('[Nn]ew UNIX [Pp]assword: ')
+        child.expect(['[Nn]ew UNIX [Pp]assword: ', '[Nn]ew [Pp]assword: '])
     child.sendline(newpassword)
 
-    i = child.expect(['[Nn]ew UNIX [Pp]assword: ', '[Rr]etype', '[Rr]e-enter'])
+    i = child.expect(['[Nn]ew UNIX [Pp]assword: ', '[Nn]ew [Pp]assword: ', '[Rr]etype', '[Rr]e-enter'])
 
     if i == 0:
         print('Host did not like new password. Here is what it said...')
@@ -81,11 +92,12 @@ def change_password(child, user, oldpassword, newpassword):
         return
     child.sendline(newpassword)
 
-    i = child.expect(['passwd: password updated successfully'])
-    if i == 0:
+    i = child.expect(['\r\npasswd: password updated successfully', '\r\npasswd: all authentication tokens updated successfully.'])
+
+    if i == 0 or i == 1:
         print("Password has been updated successfully")
     else:
-        print("There was a problem changing your password")
+        print("There was a problem changing your password\n", child.before, child.after)
 
 
 
